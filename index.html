@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>軽量外観検査ツール</title>
+
+  <!-- スマホ単独（直開き）運用：PWAは一旦OFF（manifest / service worker 使わない） -->
+  <!-- <link rel="manifest" href="./static/manifest.webmanifest"> -->
+  <!-- <meta name="theme-color" content="#2c3e50" /> -->
+
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; padding: 20px; }
+    h1 { font-size: 22px; margin: 0 0 12px; }
+    .card { background:#f7f7f7; border-radius: 12px; padding: 12px 14px; margin: 10px 0 14px; }
+    .row { margin: 10px 0; }
+    label { display:block; font-size: 14px; margin: 6px 0; }
+    select, input[type="text"], input[type="file"] { width: 100%; max-width: 420px; padding: 10px; font-size: 16px; }
+    button { padding: 12px 16px; font-size: 16px; cursor: pointer; }
+    .result { margin-top: 12px; padding: 12px; border: 1px solid #ddd; min-height: 60px; white-space: pre-wrap; background:#fff; border-radius: 10px; }
+    .small { font-size: 13px; opacity: .85; }
+  </style>
+</head>
+
+<body>
+  <h1>軽量外観検査ツール</h1>
+
+  <div class="card">
+    <div class="small">
+      ハウス（デモ）撮影手順：<br>
+      ① 株全体（30〜60cm） → ② 症状アップ（5〜15cm）<br>
+      ※ 虫疑いは「茎の節」中心。できれば白い背景を当てると安定。
+    </div>
+  </div>
+
+  <div class="row">
+    <label>モード</label>
+    <select id="mode">
+      <option value="weld">製造（溶接）</option>
+      <option value="paint">製造（塗装）</option>
+      <option value="agri">農業</option>
+    </select>
+  </div>
+
+  <div class="row" id="cropRow" style="display:none;">
+    <label>作物（農業のとき）</label>
+    <select id="crop">
+      <option value="asparagus">アスパラ</option>
+      <option value="tomato">トマト</option>
+      <option value="basil">バジル</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label>写真① 株全体（30〜60cm）</label>
+    <input type="file" id="photo1" accept="image/*" capture="environment" />
+  </div>
+
+  <div class="row">
+    <label>写真② 症状アップ（5〜15cm）</label>
+    <input type="file" id="photo2" accept="image/*" capture="environment" />
+  </div>
+
+  <div class="row">
+    <label>メモ（任意）</label>
+    <input type="text" id="memo" placeholder="例：虫／アブラムシ／斑点／穴 など" />
+  </div>
+
+  <div class="row">
+    <button type="button" id="judgeBtn">判定する</button>
+  </div>
+
+  <div class="result" id="result"></div>
+
+<script>
+  // ===== UI制御 =====
+  const modeEl = document.getElementById("mode");
+  const cropRowEl = document.getElementById("cropRow");
+  const cropEl = document.getElementById("crop");
+  const memoEl = document.getElementById("memo");
+  const photo1El = document.getElementById("photo1");
+  const photo2El = document.getElementById("photo2");
+  const resultEl = document.getElementById("result");
+  const judgeBtn = document.getElementById("judgeBtn");
+
+  function onModeChange() {
+    const mode = modeEl.value;
+    cropRowEl.style.display = (mode === "agri") ? "block" : "none";
+    clearResult();
+  }
+
+  function clearResult() {
+    resultEl.textContent = "";
+  }
+
+  modeEl.addEventListener("change", onModeChange);
+  cropEl.addEventListener("change", clearResult);
+  memoEl.addEventListener("input", clearResult);
+  photo1El.addEventListener("change", clearResult);
+  photo2El.addEventListener("change", clearResult);
+
+  onModeChange();
+
+  // ===== 端末内：撮影品質チェック（軽量）=====
+  async function checkPhotoQuality(file) {
+    // 失敗しても判定を止めない
+    try {
+      const bmp = await createImageBitmap(file);
+      const w = 256;
+      const h = Math.max(1, Math.round(bmp.height * (w / bmp.width)));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(bmp, 0, 0, w, h);
+
+      const data = ctx.getImageData(0, 0, w, h).data;
+
+      // 平均明るさ
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        sum += (0.2126*r + 0.7152*g + 0.0722*b);
+      }
+      const brightness = sum / (data.length / 4); // 0-255
+
+      // 簡易シャープネス（横方向差分の平均）
+      let diff = 0, cnt = 0;
+      for (let y = 0; y < h; y += 2) {
+        for (let x = 0; x < w - 2; x += 2) {
+          const i1 = (y * w + x) * 4;
+          const i2 = (y * w + (x + 2)) * 4;
+
+          const l1 = 0.2126*data[i1] + 0.7152*data[i1+1] + 0.0722*data[i1+2];
+          const l2 = 0.2126*data[i2] + 0.7152*data[i2+1] + 0.0722*data[i2+2];
+
+          diff += Math.abs(l2 - l1);
+          cnt++;
+        }
+      }
+      const sharpness = diff / Math.max(1, cnt);
+
+      const issues = [];
+      if (brightness < 70)  issues.push("暗い（露出不足）→ 明るい所へ／ライトON");
+      if (brightness > 220) issues.push("明るすぎ（白飛び）→ 少し引いて影を避ける");
+      if (sharpness < 6)    issues.push("ブレ/ピンぼけ気味 → 脇を締めて近づく／一瞬止める");
+
+      return { brightness, sharpness, issues };
+    } catch (e) {
+      return { brightness: null, sharpness: null, issues: [] };
+    }
+  }
+
+  // ===== 判定（端末内）=====
+  judgeBtn.addEventListener("click", judge);
+
+  async function judge() {
+    const mode = modeEl.value;
+    const crop = cropEl.value;
+    const memo = (memoEl.value || "").trim();
+
+    const p1 = photo1El.files[0] || null;
+    const p2 = photo2El.files[0] || null;
+
+    if (!p1 && !p2) {
+      resultEl.textContent = "写真を選択してください（①か②どちらかでもOK）";
+      return;
+    }
+
+    resultEl.textContent = "撮影品質チェック中…";
+
+    const qList = [];
+    if (p1) qList.push({ which: "①株全体", q: await checkPhotoQuality(p1) });
+    if (p2) qList.push({ which: "②症状アップ", q: await checkPhotoQuality(p2) });
+
+    const issuesAll = qList.flatMap(x => (x.q.issues || []).map(s => `${x.which}: ${s}`));
+    if (issuesAll.length > 0) {
+      resultEl.textContent =
+        "撮り直し推奨:\n- " + issuesAll.join("\n- ") +
+        "\n\n（OKになったら再度「判定する」）";
+      return;
+    }
+
+    // ===== ルール判定（メモ中心）=====
+    let result = "OK";
+    const reasonList = [];
+
+    // 共通（農業でも使う）
+    if (memo.includes("虫") || memo.includes("食害")) {
+      result = "即対応";
+      reasonList.push("害虫の可能性");
+    }
+
+    if (memo.includes("穴")) {
+      if (result !== "即対応") result = "注意";
+      reasonList.push("穴あきあり");
+    }
+
+    if (memo.includes("斑点") || memo.includes("カビ") || memo.includes("病気")) {
+      if (result !== "即対応") result = "注意";
+      reasonList.push("病気の可能性");
+    }
+
+    if (memo.includes("アブラムシ")) {
+      result = "即対応";
+      reasonList.push("アブラムシ疑い");
+    }
+
+    // 追加（必要なら後で増やす）
+    if (reasonList.length === 0) reasonList.push("問題なし");
+
+    // 作物別：最小の分岐（デモ用）
+    let cropLabel = "";
+    if (mode === "agri") {
+      cropLabel = `作物: ${crop}`;
+      if (crop === "asparagus" && (memo.includes("茎") || memo.includes("節"))) {
+        if (result === "OK") result = "注意";
+        reasonList.push("アスパラ：茎/節の異常メモあり");
+      }
+    }
+
+    // ===== スマホ単独：保存はしない（写真はカメラロールに残る）=====
+    const lines = [];
+    lines.push(`判定: ${result}`);
+    lines.push(`理由: ${reasonList.join(" / ")}`);
+    lines.push(`モード: ${mode}`);
+    if (mode === "agri") lines.push(cropLabel);
+    lines.push(`写真: ${p1 ? "①あり" : "①なし"} / ${p2 ? "②あり" : "②なし"}`);
+    lines.push(`保存: （保存なし：写真はカメラロール）`);
+
+    resultEl.textContent = lines.join("\n");
+  }
+</script>
+</body>
+</html>
