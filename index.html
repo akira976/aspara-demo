@@ -63,6 +63,25 @@
 
   <div class="row">
     <label>メモ（任意）</label>
+<hr>
+<h3>現場チェック項目</h3>
+
+<label>
+  <input type="checkbox" id="checkHole">
+  穴あり
+</label><br>
+
+<label>
+  <input type="checkbox" id="checkSpot">
+  斑点あり
+</label><br>
+
+<label>
+  <input type="checkbox" id="checkMold">
+  カビの疑い
+</label>
+<hr>
+    
     <input type="text" id="memo" placeholder="例：虫／アブラムシ／斑点／穴 など" />
   </div>
 
@@ -78,6 +97,10 @@
   const cropRowEl = document.getElementById("cropRow");
   const cropEl = document.getElementById("crop");
   const memoEl = document.getElementById("memo");
+  const checkHoleEl = document.getElementById("checkHole");
+　const checkSpotEl = document.getElementById("checkSpot");
+　const checkMoldEl = document.getElementById("checkMold");
+
   const photo1El = document.getElementById("photo1");
   const photo2El = document.getElementById("photo2");
   const resultEl = document.getElementById("result");
@@ -160,6 +183,9 @@
     const mode = modeEl.value;
     const crop = cropEl.value;
     const memo = (memoEl.value || "").trim();
+    const hasHole = checkHoleEl.checked;
+　　const hasSpot = checkSpotEl.checked;
+　　const hasMold = checkMoldEl.checked;
 
     const p1 = photo1El.files[0] || null;
     const p2 = photo2El.files[0] || null;
@@ -170,6 +196,30 @@
     }
 
     resultEl.textContent = "撮影品質チェック中…";
+    let result = "問題なし";
+　　let reasonList = [];
+
+　　// チェックボックス優先判定
+　　if (hasHole) {
+      result = "注意";
+      reasonList.push("穴あり");
+  　}
+
+  　if (hasSpot) {
+     　 result = "注意";
+     　 reasonList.push("斑点あり");
+  　}
+
+　　if (hasMold) {
+     　 result = "要確認";
+     　 reasonList.push("カビの疑い");
+  　}
+
+  　// 何もチェックなし
+    if (!hasHole && !hasSpot && !hasMold) {
+     　 reasonList.push("目視異常なし");
+  　}
+
 
     const qList = [];
     if (p1) qList.push({ which: "①株全体", q: await checkPhotoQuality(p1) });
@@ -178,57 +228,52 @@
     const issuesAll = qList.flatMap(x => (x.q.issues || []).map(s => `${x.which}: ${s}`));
     if (issuesAll.length > 0) {
       resultEl.textContent =
+      "判定: " + result + "\n" +
+    　"理由: " + reasonList.join(" / ");
         "撮り直し推奨:\n- " + issuesAll.join("\n- ") +
         "\n\n（OKになったら再度「判定する」）";
       return;
     }
 
-    // ===== ルール判定（メモ中心）=====
-    let result = "OK";
-    const reasonList = [];
-    
-  　if (mode === "agri") {
+    // ===== ルール判定（チェック中心） =====
+let result = "OK";
+const reasonList = [];
 
-    // 共通（農業でも使う）
-    if (memo.includes("虫") || memo.includes("食害")) {
-      result = "即対応";
-      reasonList.push("害虫の可能性");
-    }
+if (mode === "agri") {
+  // チェックが主役
+  if (hasHole) {
+    result = "注意";
+    reasonList.push("穴あきあり");
+  }
 
-    if (memo.includes("穴")) {
-      if (result !== "即対応") result = "注意";
-      reasonList.push("穴あきあり");
-    }
+  if (hasSpot) {
+    if (result !== "即対応") result = "注意";
+    reasonList.push("斑点あり");
+  }
 
-    if (memo.includes("斑点") || memo.includes("カビ") || memo.includes("病気")) {
-      if (result !== "即対応") result = "注意";
-      reasonList.push("病気の可能性");
-    }
+  if (hasMold) {
+    result = "即対応";
+    reasonList.push("カビ疑い");
+  }
 
-    if (memo.includes("アブラムシ")) {
-      result = "即対応";
-      reasonList.push("アブラムシ疑い");
-    }
+  // メモは補助（虫だけ拾う）
+  if (memo.includes("虫") || memo.includes("食害")) {
+    result = "即対応";
+    reasonList.push("害虫の可能性");
+  }
+}
 
-    // 追加（必要なら後で増やす）
-    if (reasonList.length === 0) reasonList.push("問題なし");
-    }
-    
-    // ===== 溶接（weld）モード：最小ルール =====
-　　if (mode === "weld") {
-
-  　if (memo.includes("クラック") || memo.includes("割れ")) {
+if (mode === "weld") {
+  if (memo.includes("クラック") || memo.includes("割れ")) {
     result = "即対応";
     reasonList.push("溶接不良（割れ）の可能性");
   }
+}
 
-  　if (memo.includes("ブローホール") || memo.includes("ピンホール")) {
-    if (result !== "即対応") result = "注意";
-    reasonList.push("溶接不良（穴系）の可能性");
-  }
+if (reasonList.length === 0) {
+  reasonList.push("問題なし");
+}
 
- 　 if (reasonList.length === 0) reasonList.push("問題なし");
-　}
 
     // 作物別：最小の分岐（デモ用）
     let cropLabel = "";
