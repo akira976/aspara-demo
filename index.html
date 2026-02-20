@@ -3,299 +3,461 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>軽量外観検査ツール</title>
-
-  <!-- スマホ単独（直開き）運用：PWAは一旦OFF（manifest / service worker 使わない） -->
-  <!-- <link rel="manifest" href="./static/manifest.webmanifest"> -->
-  <!-- <meta name="theme-color" content="#2c3e50" /> -->
-
+  <title>アスパラ外観検査（軽量AIデモ）</title>
   <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; padding: 20px; }
-    h1 { font-size: 22px; margin: 0 0 12px; }
-    .card { background:#f7f7f7; border-radius: 12px; padding: 12px 14px; margin: 10px 0 14px; }
-    .row { margin: 10px 0; }
-    label { display:block; font-size: 14px; margin: 6px 0; }
-    select, input[type="text"], input[type="file"] { width: 100%; max-width: 420px; padding: 10px; font-size: 16px; }
-    button { padding: 12px 16px; font-size: 16px; cursor: pointer; }
-    .result { margin-top: 12px; padding: 12px; border: 1px solid #ddd; min-height: 60px; white-space: pre-wrap; background:#fff; border-radius: 10px; }
-    .small { font-size: 13px; opacity: .85; }
+    :root { --bg:#f6f7fb; --card:#fff; --bd:#d8dbe6; --tx:#1f2533; --muted:#66708a; --good:#1a7f37; --warn:#b7791f; --bad:#b42318; }
+    body{ margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; color:var(--tx); background:var(--bg); }
+    .wrap{ max-width:980px; margin:0 auto; padding:18px; }
+    .h1{ font-size:20px; font-weight:800; margin:0 0 8px; }
+    .sub{ color:var(--muted); font-size:13px; line-height:1.6; margin:0 0 14px; }
+    .row{ display:grid; grid-template-columns: 1.1fr 0.9fr; gap:14px; align-items:start; }
+    @media (max-width: 860px){ .row{ grid-template-columns:1fr; } }
+    .card{ background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:14px; box-shadow: 0 1px 0 rgba(0,0,0,.03); }
+    .sec{ font-weight:700; font-size:14px; margin:0 0 10px; }
+    label{ display:block; font-size:13px; margin:10px 0 6px; }
+    input[type="file"]{ width:100%; }
+    textarea{ width:100%; min-height:86px; resize:vertical; border:1px solid var(--bd); border-radius:10px; padding:10px; font-size:14px; }
+    .hint{ font-size:12px; color:var(--muted); margin:6px 0 0; }
+    .btns{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+    button{ border:1px solid var(--bd); background:#fff; border-radius:10px; padding:10px 14px; font-weight:700; cursor:pointer; }
+    button.primary{ background:#2563eb; border-color:#2563eb; color:#fff; }
+    button:disabled{ opacity:.55; cursor:not-allowed; }
+    .pill{ display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:4px 10px; font-size:12px; border:1px solid var(--bd); background:#fff; }
+    .kpi{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 0; }
+    .k{ border:1px solid var(--bd); border-radius:12px; padding:10px 12px; background:#fff; min-width:150px; }
+    .k .t{ font-size:12px; color:var(--muted); }
+    .k .v{ font-size:18px; font-weight:900; margin-top:4px; }
+    .badge{ display:inline-block; font-weight:900; border-radius:999px; padding:4px 10px; }
+    .badge.good{ background:rgba(26,127,55,.12); color:var(--good); }
+    .badge.warn{ background:rgba(183,121,31,.14); color:var(--warn); }
+    .badge.bad{ background:rgba(180,35,24,.12); color:var(--bad); }
+    .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .chk{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--bd); border-radius:12px; background:#fff; }
+    .chk input{ transform: translateY(2px); }
+    .banner{ border-radius:12px; padding:10px 12px; border:1px solid var(--bd); background:#fff; margin-top:12px; }
+    .banner.ok{ border-color: rgba(26,127,55,.35); background: rgba(26,127,55,.08); }
+    .banner.ng{ border-color: rgba(180,35,24,.35); background: rgba(180,35,24,.08); }
+    .banner .b1{ font-weight:900; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color:var(--muted); white-space:pre-wrap; }
+    .imgbox{ width:100%; aspect-ratio: 4/3; background:#0b1020; border-radius:12px; overflow:hidden; border:1px solid var(--bd); display:flex; align-items:center; justify-content:center; }
+    .imgbox img{ width:100%; height:100%; object-fit:contain; display:none; }
+    .imgbox .ph{ color:#cbd5e1; font-size:13px; padding:12px; text-align:center; }
+    .foot{ margin-top:12px; font-size:12px; color:var(--muted); }
   </style>
 </head>
-
 <body>
-  <h1>軽量外観検査ツール</h1>
+  <div class="wrap">
+    <h1 class="h1">アスパラ外観検査（軽量AIデモ）</h1>
+    <p class="sub">
+      ・このデモは <b>写真のピクセル傾向</b>から「それっぽい兆候」を<b>推定</b>するだけ（<b>断定ではありません</b>）<br>
+      ・光 / 影 / 水滴 / 背景でブレます。<b>注意・異常＝再確認 / 撮り直し推奨</b>も含みます。<br>
+      ・<b>現場申告（チェック/メモ）はAI判定に影響しません</b>（別枠で表示します）
+    </p>
 
-  <div class="card">
-    <div class="small">
-      ハウス（デモ）撮影手順：<br>
-      ① 株全体（30〜60cm） → ② 症状アップ（5〜15cm）<br>
-      ※ 虫疑いは「茎の節」中心。できれば白い背景を当てると安定。
+    <div class="row">
+      <!-- left -->
+      <div class="card">
+        <div class="sec">入力</div>
+
+        <label>写真（アスパラ）※必須</label>
+        <input id="photo1" type="file" accept="image/*" />
+        <div class="hint">ポイント：明るい所 / 影を減らす / 近づいて撮る</div>
+
+        <label>メモ（任意・申告/補足）</label>
+        <textarea id="memo" placeholder="例：虫/食害/昨日から/ハウス内/雨上がり など"></textarea>
+        <div class="hint">※メモは「申告」として表示します（AI判定の根拠には混ぜません）</div>
+
+        <div class="btns">
+          <button id="judgeBtn" class="primary" disabled>判定する</button>
+          <button id="resetBtn">リセット</button>
+          <span id="readyPill" class="pill">判定NG（写真が必要）</span>
+        </div>
+
+        <!-- 誤入力防止バナー -->
+        <div id="guardBanner" class="banner ng">
+          <div class="b1">✅ 誤入力防止：写真未選択/非画像/巨大ファイルは判定できません（事故防止）</div>
+          <div class="b1">✅ 二重押し防止：判定中はボタンをロックします</div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div class="sec">現場申告（任意） <span class="hint">※ここは人が見てそう感じた申告。AIとは別表示</span></div>
+          <div class="grid2">
+            <label class="chk"><input id="declHole" type="checkbox" /> 穴っぽい</label>
+            <label class="chk"><input id="declSpot" type="checkbox" /> 斑点っぽい</label>
+            <label class="chk"><input id="declMold" type="checkbox" /> カビっぽい</label>
+          </div>
+        </div>
+
+        <div class="foot">作物：アスパラ（固定） / モード：農業（固定）</div>
+      </div>
+
+      <!-- right -->
+      <div class="card">
+        <div class="sec">プレビュー</div>
+        <div class="imgbox">
+          <img id="previewImg" alt="preview" />
+          <div id="previewPh" class="ph">写真を選択すると表示されます</div>
+        </div>
+
+        <div style="margin-top:12px;" class="sec">結果</div>
+
+        <div class="kpi">
+          <div class="k">
+            <div class="t">総合判定</div>
+            <div class="v" id="overallText">---</div>
+          </div>
+          <div class="k">
+            <div class="t">撮影品質</div>
+            <div class="v" id="qualityText">---</div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="sec">AI推定（可能性 0〜100） <span class="hint">※断定ではありません</span></div>
+          <div class="mono" id="aiLines">---</div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="sec">申告（別枠）</div>
+          <div class="mono" id="declareLines">---</div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="sec">debug</div>
+          <div class="mono" id="debugLines">---</div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="row">
-    <label>モード</label>
-    <select id="mode">
-      <option value="weld">製造（溶接）</option>
-      <option value="paint">製造（塗装）</option>
-      <option value="agri">農業</option>
-    </select>
-  </div>
-
-  <div class="row" id="cropRow" style="display:none;">
-    <label>作物（農業のとき）</label>
-    <select id="crop">
-      <option value="asparagus">アスパラ</option>
-      <option value="tomato">トマト</option>
-      <option value="basil">バジル</option>
-    </select>
-  </div>
-
-  <div class="row">
-    <label>写真① 株全体（30〜60cm）</label>
-    <input type="file" id="photo1" accept="image/*" capture="environment" />
-  </div>
-
-  <div class="row">
-    <label>写真② 症状アップ（5〜15cm）</label>
-    <input type="file" id="photo2" accept="image/*" capture="environment" />
-  </div>
-
-  <div class="row">
-    <label>メモ（任意）</label>
-<hr>
-<h3>現場チェック項目</h3>
-
-<label>
-  <input type="checkbox" id="checkHole">
-  穴あり
-</label><br>
-
-<label>
-  <input type="checkbox" id="checkSpot">
-  斑点あり
-</label><br>
-
-<label>
-  <input type="checkbox" id="checkMold">
-  カビの疑い
-</label>
-<hr>
-    
-    <input type="text" id="memo" placeholder="例：虫／アブラムシ／斑点／穴 など" />
-  </div>
-
-  <div class="row">
-    <button type="button" id="judgeBtn">判定する</button>
-  </div>
-
-  <div class="result" id="result"></div>
-
 <script>
-  // ===== UI制御 =====
-  const modeEl = document.getElementById("mode");
-  const cropRowEl = document.getElementById("cropRow");
-  const cropEl = document.getElementById("crop");
-  const memoEl = document.getElementById("memo");
-  const checkHoleEl = document.getElementById("checkHole");
-　const checkSpotEl = document.getElementById("checkSpot");
-　const checkMoldEl = document.getElementById("checkMold");
+(() => {
+  // ====== 設定（誤入力防止） ======
+  const MAX_FILE_MB = 8;                 // アキラ指定：8%でOK → 8MB上限に寄せる（重すぎ事故防止）
+  const MAX_BYTES = MAX_FILE_MB * 1024 * 1024;
+  const MIN_SIDE = 180;                  // 小さすぎ写真は判定NG（事故防止）
+  const CANVAS_MAX = 420;                // 計算軽量化
 
+  // ====== DOM ======
   const photo1El = document.getElementById("photo1");
-  const photo2El = document.getElementById("photo2");
-  const resultEl = document.getElementById("result");
+  const memoEl = document.getElementById("memo");
   const judgeBtn = document.getElementById("judgeBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const readyPill = document.getElementById("readyPill");
 
-  function onModeChange() {
-    const mode = modeEl.value;
-    cropRowEl.style.display = (mode === "agri") ? "block" : "none";
-    clearResult();
+  const declHole = document.getElementById("declHole");
+  const declSpot = document.getElementById("declSpot");
+  const declMold = document.getElementById("declMold");
+
+  const previewImg = document.getElementById("previewImg");
+  const previewPh = document.getElementById("previewPh");
+
+  const overallText = document.getElementById("overallText");
+  const qualityText = document.getElementById("qualityText");
+  const aiLines = document.getElementById("aiLines");
+  const declareLines = document.getElementById("declareLines");
+  const debugLines = document.getElementById("debugLines");
+
+  // ====== 状態 ======
+  let currentFile = null;
+  let currentBitmap = null;
+  let busy = false;
+
+  // ====== utils ======
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  const pct = x => Math.round(clamp01(x) * 100);
+
+  function setReadyState(ok, msg){
+    judgeBtn.disabled = !ok || busy;
+    readyPill.textContent = ok ? "判定OK（押せます）" : `判定NG（${msg}）`;
   }
 
-  function clearResult() {
-    resultEl.textContent = "";
+  function validatePhotoFile(file){
+    if(!file) return { ok:false, reason:"写真が必要" };
+    if(!file.type || !file.type.startsWith("image/")) return { ok:false, reason:"非画像ファイル" };
+    if(file.size > MAX_BYTES) return { ok:false, reason:`大きすぎ（${MAX_FILE_MB}MB超）` };
+    return { ok:true, reason:"OK" };
   }
 
-  modeEl.addEventListener("change", onModeChange);
-  cropEl.addEventListener("change", clearResult);
-  memoEl.addEventListener("input", clearResult);
-  photo1El.addEventListener("change", clearResult);
-  photo2El.addEventListener("change", clearResult);
+  function resetAll(){
+    currentFile = null;
+    if(currentBitmap){ try{ currentBitmap.close(); }catch(e){} }
+    currentBitmap = null;
 
-  onModeChange();
+    photo1El.value = "";
+    memoEl.value = "";
+    declHole.checked = false;
+    declSpot.checked = false;
+    declMold.checked = false;
 
-  // ===== 端末内：撮影品質チェック（軽量）=====
-  async function checkPhotoQuality(file) {
-    // 失敗しても判定を止めない
-    try {
-      const bmp = await createImageBitmap(file);
-      const w = 256;
-      const h = Math.max(1, Math.round(bmp.height * (w / bmp.width)));
+    previewImg.style.display = "none";
+    previewImg.src = "";
+    previewPh.style.display = "block";
 
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
+    overallText.textContent = "---";
+    qualityText.textContent = "---";
+    aiLines.textContent = "---";
+    declareLines.textContent = "---";
+    debugLines.textContent = "---";
 
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.drawImage(bmp, 0, 0, w, h);
+    busy = false;
+    setReadyState(false, "写真が必要");
+  }
 
-      const data = ctx.getImageData(0, 0, w, h).data;
+  function formatDeclares(){
+    const declares = [];
+    if(declHole.checked) declares.push("穴っぽい");
+    if(declSpot.checked) declares.push("斑点っぽい");
+    if(declMold.checked) declares.push("カビっぽい");
 
-      // 平均明るさ
-      let sum = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        sum += (0.2126*r + 0.7152*g + 0.0722*b);
-      }
-      const brightness = sum / (data.length / 4); // 0-255
+    const memo = (memoEl.value || "").trim();
+    const out = [];
+    out.push(`申告チェック：${declares.length ? declares.join(" / ") : "なし"}`);
+    out.push(`申告メモ：${memo ? memo : "なし"}`);
+    return out.join("\n");
+  }
 
-      // 簡易シャープネス（横方向差分の平均）
-      let diff = 0, cnt = 0;
-      for (let y = 0; y < h; y += 2) {
-        for (let x = 0; x < w - 2; x += 2) {
-          const i1 = (y * w + x) * 4;
-          const i2 = (y * w + (x + 2)) * 4;
+  // ====== 軽量推定（アスパラ用・ざっくり） ======
+  // ・緑マスクで「作物らしさ」ゲート（少なければ判定は弱く＆撮り直し推奨）
+  // ・輝度の平均/分散 → 明るさ/コントラスト
+  // ・横差分＋縦差分 → 粗さ(grain)
+  function analyzeAsparagus(imgData){
+    const { data, width:w, height:h } = imgData;
 
-          const l1 = 0.2126*data[i1] + 0.7152*data[i1+1] + 0.0722*data[i1+2];
-          const l2 = 0.2126*data[i2] + 0.7152*data[i2+1] + 0.0722*data[i2+2];
+    let sum=0, sum2=0;
+    let greenCount=0;
 
-          diff += Math.abs(l2 - l1);
-          cnt++;
+    let diffXsum=0, diffYsum=0;
+    let cntX=0, cntY=0;
+
+    for(let y=0; y<h; y++){
+      for(let x=0; x<w; x++){
+        const idx = (y*w + x)*4;
+        const r = data[idx], g = data[idx+1], b = data[idx+2];
+
+        // 輝度
+        const lum = (r*0.299 + g*0.587 + b*0.114);
+
+        // 緑マスク（ざっくり）
+        const isGreen = (g > r*1.08 && g > b*1.08 && g > 50);
+        if(!isGreen) continue;
+
+        greenCount++;
+        sum += lum;
+        sum2 += lum*lum;
+
+        // 横差分
+        if(x < w-1){
+          const idx2 = idx+4;
+          const r2=data[idx2], g2=data[idx2+1], b2=data[idx2+2];
+          const lum2 = (r2*0.299 + g2*0.587 + b2*0.114);
+          const isGreen2 = (g2 > r2*1.08 && g2 > b2*1.08 && g2 > 50);
+          if(isGreen2){
+            diffXsum += Math.abs(lum - lum2);
+            cntX++;
+          }
+        }
+
+        // 縦差分
+        if(y < h-1){
+          const idx3 = idx + w*4;
+          const r3=data[idx3], g3=data[idx3+1], b3=data[idx3+2];
+          const lum3 = (r3*0.299 + g3*0.587 + b3*0.114);
+          const isGreen3 = (g3 > r3*1.08 && g3 > b3*1.08 && g3 > 50);
+          if(isGreen3){
+            diffYsum += Math.abs(lum - lum3);
+            cntY++;
+          }
         }
       }
-      const sharpness = diff / Math.max(1, cnt);
-
-      const issues = [];
-      if (brightness < 70)  issues.push("暗い（露出不足）→ 明るい所へ／ライトON");
-      if (brightness > 220) issues.push("明るすぎ（白飛び）→ 少し引いて影を避ける");
-      if (sharpness < 6)    issues.push("ブレ/ピンぼけ気味 → 脇を締めて近づく／一瞬止める");
-
-      return { brightness, sharpness, issues };
-    } catch (e) {
-      return { brightness: null, sharpness: null, issues: [] };
     }
+
+    const total = w*h;
+    const greenRatio = greenCount / Math.max(1,total);
+
+    // ゲート：作物領域が小さすぎる
+    if(greenRatio < 0.08){
+      return {
+        gateOut:true,
+        greenRatio,
+        mean:0, sd:0,
+        grain:0,
+        scores:{ mold:0, hole:0, spot:0 },
+        quality:{ label:"注意あり（取り直し推奨）", why:["作物領域が小さい（近づいて撮影）"] }
+      };
+    }
+
+    const mean = sum / Math.max(1,greenCount);
+    const varr = (sum2 / Math.max(1,greenCount)) - mean*mean;
+    const sd = Math.sqrt(Math.max(0,varr));
+
+    const diffX = cntX ? (diffXsum / cntX) : 0;
+    const diffY = cntY ? (diffYsum / cntY) : 0;
+    const grain = diffX * 0.6 + diffY * 0.4;
+
+    // ここが “それっぽさ” の推定（デモ）
+    // spot: grain + sd（ムラっぽい）
+    // mold: sd高い＆暗め（白カビ的ムラを雑に拾う）
+    // hole: grain高い＆緑比低め（欠け/穴で領域が割れる想定）
+    const gN = clamp01((greenRatio - 0.08) / 0.25);
+    const sdN = clamp01((sd - 25) / 55);
+    const grN = clamp01((grain - 10) / 40);
+    const darkN = clamp01((120 - mean) / 60);
+
+    const spot = clamp01(0.55*grN + 0.45*sdN);
+    const mold = clamp01(0.45*sdN + 0.35*darkN + 0.20*grN);
+    const hole = clamp01(0.60*grN + 0.25*(1-gN) + 0.15*sdN);
+
+    // 撮影品質（ブレ要因）
+    const why = [];
+    let qLabel = "OK";
+    if(greenRatio < 0.12){ qLabel="注意あり（取り直し推奨）"; why.push("作物領域が小さい（近づいて撮影）"); }
+    if(sd < 18){ qLabel="注意あり（取り直し推奨）"; why.push("コントラスト低め（明るさ/影を調整）"); }
+    if(mean < 80){ qLabel="注意あり（取り直し推奨）"; why.push("暗め（明るい場所で撮影）"); }
+
+    return {
+      gateOut:false,
+      greenRatio, mean, sd, grain,
+      scores:{ mold, hole, spot },
+      quality:{ label:qLabel, why }
+    };
   }
 
-  // ===== 判定（端末内）=====
-  judgeBtn.addEventListener("click", judge);
+  function overallFromScores(scores){
+    // 総合：最大値で3段階
+    const mx = Math.max(scores.mold, scores.hole, scores.spot);
+    if(mx >= 0.62) return { label:"異常", cls:"bad" };
+    if(mx >= 0.42) return { label:"注意（要確認）", cls:"warn" };
+    return { label:"正常", cls:"good" };
+  }
 
-  async function judge() {
-    const mode = modeEl.value;
-    const crop = cropEl.value;
-    const memo = (memoEl.value || "").trim();
-    const hasHole = checkHoleEl.checked;
-　　const hasSpot = checkSpotEl.checked;
-　　const hasMold = checkMoldEl.checked;
+  async function drawToCanvasAndGetImageData(bitmap){
+    // リサイズして軽量化
+    const w0 = bitmap.width, h0 = bitmap.height;
+    const scale = Math.min(1, CANVAS_MAX / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0*scale));
+    const h = Math.max(1, Math.round(h0*scale));
 
-    const p1 = photo1El.files[0] || null;
-    const p2 = photo2El.files[0] || null;
+    if(Math.min(w0,h0) < MIN_SIDE){
+      throw new Error(`解像度が小さすぎます（短辺${MIN_SIDE}px以上推奨）`);
+    }
 
-    if (!p1 && !p2) {
-      resultEl.textContent = "写真を選択してください（①か②どちらかでもOK）";
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently:true });
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return { imgData: ctx.getImageData(0,0,w,h), w, h, w0, h0 };
+  }
+
+  // ====== イベント ======
+  photo1El.addEventListener("change", async () => {
+    const file = photo1El.files && photo1El.files[0];
+    const v = validatePhotoFile(file);
+
+    // プレビューをいったんクリア
+    previewImg.style.display = "none";
+    previewPh.style.display = "block";
+    previewImg.src = "";
+
+    if(!v.ok){
+      currentFile = null;
+      setReadyState(false, v.reason);
       return;
     }
 
-    resultEl.textContent = "撮影品質チェック中…";
-    let result = "問題なし";
-　　let reasonList = [];
+    currentFile = file;
 
-　　// チェックボックス優先判定
-　　if (hasHole) {
-      result = "注意";
-      reasonList.push("穴あり");
-  　}
+    // 画像プレビュー
+    const url = URL.createObjectURL(file);
+    previewImg.src = url;
+    previewImg.onload = () => {
+      previewImg.style.display = "block";
+      previewPh.style.display = "none";
+      URL.revokeObjectURL(url);
+    };
 
-  　if (hasSpot) {
-     　 result = "注意";
-     　 reasonList.push("斑点あり");
-  　}
+    // bitmap準備
+    try{
+      if(currentBitmap){ try{ currentBitmap.close(); }catch(e){} }
+      currentBitmap = await createImageBitmap(file);
+      setReadyState(true, "OK");
+    }catch(e){
+      currentFile = null;
+      setReadyState(false, "画像が読めません");
+    }
+  });
 
-　　if (hasMold) {
-     　 result = "要確認";
-     　 reasonList.push("カビの疑い");
-  　}
+  resetBtn.addEventListener("click", () => resetAll());
 
-  　// 何もチェックなし
-    if (!hasHole && !hasSpot && !hasMold) {
-     　 reasonList.push("目視異常なし");
-  　}
-
-
-    const qList = [];
-    if (p1) qList.push({ which: "①株全体", q: await checkPhotoQuality(p1) });
-    if (p2) qList.push({ which: "②症状アップ", q: await checkPhotoQuality(p2) });
-
-    const issuesAll = qList.flatMap(x => (x.q.issues || []).map(s => `${x.which}: ${s}`));
-    if (issuesAll.length > 0) {
-      resultEl.textContent =
-      "判定: " + result + "\n" +
-    　"理由: " + reasonList.join(" / ");
-        "撮り直し推奨:\n- " + issuesAll.join("\n- ") +
-        "\n\n（OKになったら再度「判定する」）";
+  judgeBtn.addEventListener("click", async () => {
+    if(busy) return;
+    const v = validatePhotoFile(currentFile);
+    if(!v.ok){
+      setReadyState(false, v.reason);
       return;
     }
 
-    // ===== ルール判定（チェック中心） =====
-let result = "OK";
-const reasonList = [];
+    busy = true;
+    judgeBtn.disabled = true;
+    readyPill.textContent = "判定中…（ロック中）";
 
-if (mode === "agri") {
-  // チェックが主役
-  if (hasHole) {
-    result = "注意";
-    reasonList.push("穴あきあり");
-  }
-
-  if (hasSpot) {
-    if (result !== "即対応") result = "注意";
-    reasonList.push("斑点あり");
-  }
-
-  if (hasMold) {
-    result = "即対応";
-    reasonList.push("カビ疑い");
-  }
-
-  // メモは補助（虫だけ拾う）
-  if (memo.includes("虫") || memo.includes("食害")) {
-    result = "即対応";
-    reasonList.push("害虫の可能性");
-  }
-}
-
-if (mode === "weld") {
-  if (memo.includes("クラック") || memo.includes("割れ")) {
-    result = "即対応";
-    reasonList.push("溶接不良（割れ）の可能性");
-  }
-}
-
-if (reasonList.length === 0) {
-  reasonList.push("問題なし");
-}
-
-
-    // 作物別：最小の分岐（デモ用）
-    let cropLabel = "";
-    if (mode === "agri") {
-      cropLabel = `作物: ${crop}`;
-      if (crop === "asparagus" && (memo.includes("茎") || memo.includes("節"))) {
-        if (result === "OK") result = "注意";
-        reasonList.push("アスパラ：茎/節の異常メモあり");
+    try{
+      if(!currentBitmap){
+        currentBitmap = await createImageBitmap(currentFile);
       }
+
+      const { imgData, w, h, w0, h0 } = await drawToCanvasAndGetImageData(currentBitmap);
+      const ana = analyzeAsparagus(imgData);
+
+      // 表示：申告
+      declareLines.textContent = formatDeclares();
+
+      // 表示：品質
+      qualityText.textContent = ana.quality.label;
+
+      // 表示：AI推定
+      const s = ana.scores;
+      const lines = [];
+      lines.push(`- カビ：${pct(s.mold)}%`);
+      lines.push(`- 穴：${pct(s.hole)}%`);
+      lines.push(`- 斑点：${pct(s.spot)}%`);
+      aiLines.textContent = lines.join("\n");
+
+      // 表示：総合
+      const ov = overallFromScores(s);
+      overallText.innerHTML = `<span class="badge ${ov.cls}">${ov.label}</span>`;
+
+      // debug
+      const dbg = [];
+      dbg.push(`file: ${currentFile.name}`);
+      dbg.push(`size: ${Math.round(currentFile.size/1024)} KB`);
+      dbg.push(`img: ${w0}x${h0} -> calc: ${w}x${h}`);
+      dbg.push(`greenRatio: ${Math.round(ana.greenRatio*100)}%`);
+      dbg.push(`mean: ${Math.round(ana.mean)} / sd: ${Math.round(ana.sd)} / grain: ${Math.round(ana.grain)}`);
+      if(ana.quality.why && ana.quality.why.length){
+        dbg.push(`qualityWhy: ${ana.quality.why.join(" / ")}`);
+      }
+      debugLines.textContent = dbg.join("\n");
+
+      setReadyState(true, "OK");
+    }catch(e){
+      overallText.textContent = "---";
+      qualityText.textContent = "---";
+      aiLines.textContent = "---";
+      debugLines.textContent = String(e && e.message ? e.message : e);
+
+      setReadyState(false, "判定できません");
+    }finally{
+      busy = false;
+      // ready状態に戻す
+      const vv = validatePhotoFile(currentFile);
+      setReadyState(vv.ok, vv.ok ? "OK" : vv.reason);
     }
+  });
 
-    // ===== スマホ単独：保存はしない（写真はカメラロールに残る）=====
-    const lines = [];
-    lines.push(`判定: ${result}`);
-    lines.push(`理由: ${reasonList.join(" / ")}`);
-    lines.push(`モード: ${mode}`);
-    if (mode === "agri") lines.push(cropLabel);
-    lines.push(`写真: ${p1 ? "①あり" : "①なし"} / ${p2 ? "②あり" : "②なし"}`);
-    lines.push(`保存: （保存なし：写真はカメラロール）`);
-
-    resultEl.textContent = lines.join("\n");
-  }
+  // 初期
+  resetAll();
+})();
 </script>
 </body>
 </html>
