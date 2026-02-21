@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>塗装ムラ検査（ROI＋保存）</title>
+  <style>
+    :root { --bg:#f6f7fb; --card:#fff; --bd:#d8dbe6; --tx:#1f2533; --muted:#66708a; --good:#1a7f37; --warn:#b7791f; --bad:#b42318; --pri:#2563eb; }
+    body{ margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; color:var(--tx); background:var(--bg); }
+    .wrap{ max-width:980px; margin:0 auto; padding:18px; }
+    .h1{ font-size:20px; font-weight:900; margin:0 0 8px; }
+    .sub{ color:var(--muted); font-size:13px; line-height:1.6; margin:0 0 14px; }
+    .row{ display:grid; grid-template-columns: 1.05fr 0.95fr; gap:14px; align-items:start; }
+    @media (max-width: 860px){ .row{ grid-template-columns:1fr; } }
+    .card{ background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:14px; box-shadow: 0 1px 0 rgba(0,0,0,.03); }
+    .sec{ font-weight:800; font-size:14px; margin:0 0 10px; }
+    label{ display:block; font-size:13px; margin:10px 0 6px; }
+    input[type="file"]{ width:100%; }
+    .hint{ font-size:12px; color:var(--muted); margin:6px 0 0; }
+    .btns{ display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+    button{ border:1px solid var(--bd); background:#fff; border-radius:10px; padding:10px 14px; font-weight:800; cursor:pointer; }
+    button.primary{ background:var(--pri); border-color:var(--pri); color:#fff; }
+    button:disabled{ opacity:.55; cursor:not-allowed; }
+    select{ border:1px solid var(--bd); border-radius:10px; padding:10px 12px; font-weight:800; background:#fff; }
+    .pill{ display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:4px 10px; font-size:12px; border:1px solid var(--bd); background:#fff; }
+    .imgbox{ width:100%; aspect-ratio: 4/3; background:#0b1020; border-radius:12px; overflow:hidden; border:1px solid var(--bd); display:flex; align-items:center; justify-content:center; position:relative; }
+    canvas{ width:100%; height:100%; display:none; touch-action:none; }
+    .ph{ color:#cbd5e1; font-size:13px; padding:12px; text-align:center; }
+    .kpi{ display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 0; }
+    .k{ border:1px solid var(--bd); border-radius:12px; padding:10px 12px; background:#fff; min-width:160px; }
+    .k .t{ font-size:12px; color:var(--muted); }
+    .k .v{ font-size:18px; font-weight:900; margin-top:4px; }
+    .badge{ display:inline-block; font-weight:900; border-radius:999px; padding:4px 10px; }
+    .badge.good{ background:rgba(26,127,55,.12); color:var(--good); }
+    .badge.warn{ background:rgba(183,121,31,.14); color:var(--warn); }
+    .badge.bad{ background:rgba(180,35,24,.12); color:var(--bad); }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; color:var(--muted); white-space:pre-wrap; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1 class="h1">塗装ムラ検査（ROI＋保存）</h1>
+    <p class="sub">
+      ・写真を選んだら、プレビュー上で<b>指で四角く範囲（ROI）</b>を選んでください。<br>
+      ・<b>ムラスコア（SD）</b>は小さいほど均一。<b>テカリ対策で上位2%の明るさを除外</b>して計算します。<br>
+      ・保存PNGに入る文字は <b>日時 / OK・NG / SD</b> のみ。
+    </p>
+
+    <div class="row">
+      <div class="card">
+        <div class="sec">入力</div>
+
+        <label>写真（塗装面）※必須</label>
+        <input id="photo" type="file" accept="image/*" />
+        <div class="hint">撮影のコツ：角度は正面気味／フラッシュOFF／照明をできるだけ一定に</div>
+
+        <label>ラベル（任意）</label>
+        <select id="labelSel">
+          <option value="none" selected>ラベルなし</option>
+          <option value="OK">OK</option>
+          <option value="NG">NG</option>
+        </select>
+
+        <div class="btns">
+          <button id="judgeBtn" class="primary" disabled>判定する</button>
+          <button id="saveBtn" disabled>保存（PNG）</button>
+          <button id="resetBtn">リセット</button>
+          <span id="readyPill" class="pill">判定NG（写真が必要）</span>
+        </div>
+
+        <div class="hint">保存は「判定後」に有効。保存すると結果付きPNGがダウンロードされます。</div>
+      </div>
+
+      <div class="card">
+        <div class="sec">プレビュー（ROIを指で選ぶ）</div>
+        <div class="imgbox">
+          <canvas id="roiCanvas"></canvas>
+          <div id="ph" class="ph">写真を選択すると表示されます</div>
+        </div>
+
+        <div style="margin-top:12px;" class="sec">結果</div>
+
+        <div class="kpi">
+          <div class="k">
+            <div class="t">総合</div>
+            <div class="v" id="overallText">---</div>
+          </div>
+          <div class="k">
+            <div class="t">ムラスコア（SD）</div>
+            <div class="v" id="sdText">---</div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="sec">debug</div>
+          <div class="mono" id="debugLines">---</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ====== 設定 ======
+  const MAX_FILE_MB = 10;
+  const MAX_BYTES = MAX_FILE_MB * 1024 * 1024;
+
+  // 計算軽量化（長辺をこのpxに縮小）
+  const CALC_MAX = 520;
+
+  // テカリ対策：上位2%の明るさを除外
+  const CLIP_RATIO = 0.98;
+
+  // 仮しきい値（現場写真で後で調整する）
+  const SD_GOOD = 18;  // これ未満：均一寄り
+  const SD_WARN = 28;  // これ以上：ムラ大寄り
+
+  // ====== DOM ======
+  const photoEl = document.getElementById("photo");
+  const labelSel = document.getElementById("labelSel");
+  const judgeBtn = document.getElementById("judgeBtn");
+  const saveBtn = document.getElementById("saveBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const readyPill = document.getElementById("readyPill");
+  const roiCanvas = document.getElementById("roiCanvas");
+  const ph = document.getElementById("ph");
+
+  const overallText = document.getElementById("overallText");
+  const sdText = document.getElementById("sdText");
+  const debugLines = document.getElementById("debugLines");
+
+  // ====== 状態 ======
+  let currentFile = null;
+  let bitmap = null;
+
+  // 表示用（ROI選択）キャンバス
+  let dispW = 0, dispH = 0;
+  let drag = { on:false, sx:0, sy:0 };
+  let dragRect = null; // display-canvas coords {x,y,w,h}
+
+  // 計算用（縮小）キャンバス
+  let calc = null; // {canvas, ctx, w, h}
+
+  // 最後の結果（保存用）
+  let lastSD = null;
+  let lastRoiCalc = null; // calc coords
+  let busy = false;
+
+  // ====== utils ======
+  function setReady(ok, msg){
+    judgeBtn.disabled = !ok || busy;
+    readyPill.textContent = ok ? "判定OK（押せます）" : `判定NG（${msg}）`;
+  }
+
+  function validateFile(file){
+    if(!file) return {ok:false, reason:"写真が必要"};
+    if(!file.type || !file.type.startsWith("image/")) return {ok:false, reason:"非画像ファイル"};
+    if(file.size > MAX_BYTES) return {ok:false, reason:`大きすぎ（${MAX_FILE_MB}MB超）`};
+    return {ok:true, reason:"OK"};
+  }
+
+  function resetAll(){
+    currentFile = null;
+    if(bitmap){ try{ bitmap.close(); }catch(e){} }
+    bitmap = null;
+
+    photoEl.value = "";
+    labelSel.value = "none";
+
+    roiCanvas.style.display = "none";
+    ph.style.display = "block";
+
+    overallText.textContent = "---";
+    sdText.textContent = "---";
+    debugLines.textContent = "---";
+
+    drag = { on:false, sx:0, sy:0 };
+    dragRect = null;
+
+    calc = null;
+    lastSD = null;
+    lastRoiCalc = null;
+    saveBtn.disabled = true;
+
+    busy = false;
+    setReady(false, "写真が必要");
+  }
+
+  function safeStamp(){
+    // 2026-02-21 19-05-33 の形式（ファイル名安全）
+    const d = new Date();
+    const pad = n => String(n).padStart(2,"0");
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+  }
+
+  function drawDisplay(){
+    const ctx = roiCanvas.getContext("2d", { willReadFrequently:true });
+    ctx.clearRect(0,0,dispW,dispH);
+    ctx.drawImage(bitmap, 0, 0, dispW, dispH);
+
+    if(dragRect){
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(37,99,235,0.95)";
+      ctx.fillStyle = "rgba(37,99,235,0.12)";
+      ctx.fillRect(dragRect.x, dragRect.y, dragRect.w, dragRect.h);
+      ctx.strokeRect(dragRect.x, dragRect.y, dragRect.w, dragRect.h);
+      ctx.restore();
+    }
+  }
+
+  function posFromEvent(ev){
+    const r = roiCanvas.getBoundingClientRect();
+    const x = (ev.clientX - r.left) * (roiCanvas.width / r.width);
+    const y = (ev.clientY - r.top) * (roiCanvas.height / r.height);
+    return {x,y};
+  }
+
+  function ensureCalcCanvas(){
+    // bitmapを縮小してcalcキャンバスに描く
+    const w0 = bitmap.width, h0 = bitmap.height;
+    const scale = Math.min(1, CALC_MAX / Math.max(w0, h0));
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
+
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently:true });
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    calc = { canvas:c, ctx, w, h, w0, h0 };
+  }
+
+  function clipAndSd(imgData){
+    // ROI ImageDataから、上位(CLIP_RATIO)を超える明るさを除外してSD計算
+    const { data } = imgData;
+
+    // 1) ヒストグラム
+    const hist = new Array(256).fill(0);
+    let total = 0;
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const lum = Math.round(r*0.299 + g*0.587 + b*0.114);
+      hist[lum]++; total++;
+    }
+
+    // 2) clipLum決定（下からCLIP_RATIO到達の明るさ）
+    const target = Math.floor(total * CLIP_RATIO);
+    let acc = 0;
+    let clipLum = 255;
+    for(let i=0;i<256;i++){
+      acc += hist[i];
+      if(acc >= target){ clipLum = i; break; }
+    }
+
+    // 3) 除外して平均/SD
+    let sum=0, sum2=0, kept=0, clipped=0;
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const lum = (r*0.299 + g*0.587 + b*0.114);
+      if(lum > clipLum){ clipped++; continue; }
+      kept++;
+      sum += lum;
+      sum2 += lum*lum;
+    }
+
+    const mean = sum / Math.max(1, kept);
+    const varr = (sum2 / Math.max(1, kept)) - mean*mean;
+    const sd = Math.sqrt(Math.max(0, varr));
+
+    return { sd, mean, clipLum, kept, clipped, total };
+  }
+
+  function overallLabel(sd){
+    if(sd >= SD_WARN) return { label:"ムラ大（要改善）", cls:"bad" };
+    if(sd >= SD_GOOD) return { label:"注意（ムラ気味）", cls:"warn" };
+    return { label:"均一", cls:"good" };
+  }
+
+  function downloadBlob(blob, filename){
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function exportPng(){
+    if(!calc || lastSD == null) throw new Error("判定後に保存してください");
+
+    const out = document.createElement("canvas");
+    out.width = calc.w;
+    out.height = calc.h;
+    const octx = out.getContext("2d");
+    octx.drawImage(calc.canvas, 0, 0);
+
+    // ROI枠（calc座標）
+    if(lastRoiCalc){
+      octx.save();
+      octx.lineWidth = 3;
+      octx.strokeStyle = "rgba(37,99,235,0.95)";
+      octx.fillStyle = "rgba(37,99,235,0.10)";
+      octx.fillRect(lastRoiCalc.x, lastRoiCalc.y, lastRoiCalc.w, lastRoiCalc.h);
+      octx.strokeRect(lastRoiCalc.x, lastRoiCalc.y, lastRoiCalc.w, lastRoiCalc.h);
+      octx.restore();
+    }
+
+    // 文字（最小：日時 / OKNG / SD）
+    const stamp = safeStamp();
+    const label = (labelSel.value !== "none") ? labelSel.value : "";
+    const line1 = stamp;
+    const line2 = `${label ? (label+" / ") : ""}SD=${Number(lastSD).toFixed(1)}`;
+
+    octx.save();
+    octx.fillStyle = "rgba(0,0,0,0.60)";
+    octx.fillRect(0, 0, out.width, 48);
+    octx.fillStyle = "white";
+    octx.font = "bold 14px system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans JP', sans-serif";
+    octx.textBaseline = "top";
+    octx.fillText(line1, 10, 6);
+    octx.fillText(line2, 10, 26);
+    octx.restore();
+
+    const blob = await new Promise(res => out.toBlob(res, "image/png"));
+    const fname = `${stamp}_${label || "nolabel"}_SD${Number(lastSD).toFixed(1)}.png`;
+    downloadBlob(blob, fname);
+  }
+
+  // ====== events ======
+  photoEl.addEventListener("change", async () => {
+    const file = photoEl.files && photoEl.files[0];
+    const v = validateFile(file);
+
+    overallText.textContent = "---";
+    sdText.textContent = "---";
+    debugLines.textContent = "---";
+    saveBtn.disabled = true;
+    lastSD = null;
+    lastRoiCalc = null;
+    calc = null;
+    dragRect = null;
+
+    if(!v.ok){
+      currentFile = null;
+      setReady(false, v.reason);
+      return;
+    }
+
+    currentFile = file;
+
+    try{
+      if(bitmap){ try{ bitmap.close(); }catch(e){} }
+      bitmap = await createImageBitmap(file);
+
+      // 表示キャンバスサイズ（最大700程度）
+      const maxDisp = 720;
+      const s = Math.min(1, maxDisp / Math.max(bitmap.width, bitmap.height));
+      dispW = Math.max(1, Math.round(bitmap.width * s));
+      dispH = Math.max(1, Math.round(bitmap.height * s));
+
+      roiCanvas.width = dispW;
+      roiCanvas.height = dispH;
+      roiCanvas.style.display = "block";
+      ph.style.display = "none";
+
+      // 初期ガイド枠（中央60%）
+      const gw = Math.round(dispW * 0.6);
+      const gh = Math.round(dispH * 0.6);
+      const gx = Math.round((dispW - gw) / 2);
+      const gy = Math.round((dispH - gh) / 2);
+      dragRect = { x:gx, y:gy, w:gw, h:gh };
+
+      drawDisplay();
+      setReady(true, "OK");
+    }catch(e){
+      currentFile = null;
+      setReady(false, "画像が読めません");
+    }
+  });
+
+  roiCanvas.addEventListener("pointerdown", (ev) => {
+    if(!bitmap) return;
+    roiCanvas.setPointerCapture(ev.pointerId);
+    const p = posFromEvent(ev);
+    drag.on = true; drag.sx = p.x; drag.sy = p.y;
+    dragRect = { x:p.x, y:p.y, w:1, h:1 };
+    drawDisplay();
+  });
+
+  roiCanvas.addEventListener("pointermove", (ev) => {
+    if(!bitmap || !drag.on) return;
+    const p = posFromEvent(ev);
+    const x = Math.min(drag.sx, p.x);
+    const y = Math.min(drag.sy, p.y);
+    const w = Math.abs(p.x - drag.sx);
+    const h = Math.abs(p.y - drag.sy);
+    dragRect = { x, y, w, h };
+    drawDisplay();
+  });
+
+  roiCanvas.addEventListener("pointerup", () => {
+    drag.on = false;
+  });
+
+  resetBtn.addEventListener("click", () => resetAll());
+
+  judgeBtn.addEventListener("click", () => {
+    if(busy) return;
+    const v = validateFile(currentFile);
+    if(!v.ok){ setReady(false, v.reason); return; }
+    if(!bitmap) return;
+
+    if(!dragRect || dragRect.w < 20 || dragRect.h < 20){
+      alert("範囲（ROI）をもう少し大きく選んでください");
+      return;
+    }
+
+    busy = true;
+    judgeBtn.disabled = true;
+    readyPill.textContent = "判定中…（ロック中）";
+
+    try{
+      ensureCalcCanvas();
+
+      // display → calc 変換
+      const sx = calc.w / dispW;
+      const sy = calc.h / dispH;
+      const roiCalc = {
+        x: dragRect.x * sx,
+        y: dragRect.y * sy,
+        w: dragRect.w * sx,
+        h: dragRect.h * sy
+      };
+
+      // ROI切り出し（calc座標でImageData）
+      const x0 = Math.max(0, Math.floor(roiCalc.x));
+      const y0 = Math.max(0, Math.floor(roiCalc.y));
+      const x1 = Math.min(calc.w, Math.ceil(roiCalc.x + roiCalc.w));
+      const y1 = Math.min(calc.h, Math.ceil(roiCalc.y + roiCalc.h));
+      const rw = x1 - x0, rh = y1 - y0;
+
+      if(rw < 20 || rh < 20) throw new Error("ROIが小さすぎます");
+
+      const imgData = calc.ctx.getImageData(x0, y0, rw, rh);
+
+      const r = clipAndSd(imgData);
+      lastSD = r.sd;
+      lastRoiCalc = { x:x0, y:y0, w:rw, h:rh };
+
+      const ov = overallLabel(r.sd);
+      overallText.innerHTML = `<span class="badge ${ov.cls}">${ov.label}</span>`;
+      sdText.textContent = r.sd.toFixed(1);
+
+      // debug
+      const dbg = [];
+      dbg.push(`file: ${currentFile.name}`);
+      dbg.push(`img: ${calc.w0}x${calc.h0} -> calc: ${calc.w}x${calc.h}`);
+      dbg.push(`roi(calc): x=${x0}, y=${y0}, w=${rw}, h=${rh}`);
+      dbg.push(`clipLum(98%): ${r.clipLum}`);
+      dbg.push(`kept: ${r.kept} / clipped: ${r.clipped} / total: ${r.total}`);
+      dbg.push(`mean: ${r.mean.toFixed(1)} / sd: ${r.sd.toFixed(1)}`);
+      debugLines.textContent = dbg.join("\n");
+
+      saveBtn.disabled = false;
+      setReady(true, "OK");
+    }catch(e){
+      overallText.textContent = "---";
+      sdText.textContent = "---";
+      debugLines.textContent = (e && e.message) ? e.message : String(e);
+      saveBtn.disabled = true;
+      setReady(false, "判定できません");
+    }finally{
+      busy = false;
+      const vv = validateFile(currentFile);
+      setReady(vv.ok, vv.ok ? "OK" : vv.reason);
+    }
+  });
+
+  saveBtn.addEventListener("click", async () => {
+    try{
+      await exportPng();
+    }catch(e){
+      alert((e && e.message) ? e.message : String(e));
+    }
+  });
+
+  // init
+  resetAll();
+})();
+</script>
+</body>
+</html>
