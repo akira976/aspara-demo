@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>アスパラ外観検査（軽量AIデモ）</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; padding: 18px; }
+    h1 { font-size: 20px; margin: 0 0 10px; }
+    .small { font-size: 12px; opacity: .85; line-height: 1.4; }
+    .card { background:#f7f7f7; border-radius: 12px; padding: 12px 14px; margin: 10px 0 12px; }
+    .row { margin: 10px 0; }
+    label { display:block; font-size: 14px; margin: 6px 0; }
+    input[type="text"], input[type="file"], textarea { width: 100%; max-width: 520px; padding: 10px; font-size: 16px; }
+    textarea { height: 70px; }
+    button { padding: 12px 16px; font-size: 16px; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .pill { display:inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; background:#eaeaea; margin-left: 6px; }
+    .ok { background:#dff5e5; }
+    .warn { background:#fff2cc; }
+    .bad { background:#ffe1e1; }
+
+    .banner {
+      border: 1px solid #f2c46d;
+      background: #fff6e8;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    .result { margin-top: 12px; padding: 12px; border: 1px solid #ddd; min-height: 120px; white-space: pre-wrap; background:#fff; border-radius: 10px; line-height: 1.5; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    img { max-width: 100%; border-radius: 10px; border: 1px solid #ddd; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>アスパラ外観検査（軽量AIデモ）</h1>
+  <div class="small">
+    ・このデモは<strong>写真のピクセル傾向</strong>から「それっぽい兆候」を推定するだけ（断定しません）<br/>
+    ・光・影・泥・水滴でブレるので、注意/異常は「再確認・撮り直し推奨」も含みます
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <label>写真（アスパラ） ※必須</label>
+      <input type="file" id="photo1" accept="image/*" />
+      <div class="small">ポイント：明るい所／影を減らす／近づいて撮る</div>
+    </div>
+
+    <div class="row">
+      <label>メモ（任意・申告/補足）</label>
+      <textarea id="memo" placeholder="例：虫/食害/昨日から/ハウス内/雨上がり など"></textarea>
+      <div class="small">※メモは「申告」として表示します（AI判定の根拠には混ぜません）</div>
+    </div>
+
+    <div class="row">
+      <button id="judgeBtn" disabled>判定する</button>
+      <button id="resetBtn" type="button">リセット</button>
+      <span id="readyPill" class="pill warn">判定NG（写真が必要）</span>
+
+      <div id="guardBanner" class="banner">
+        ✅ 誤入力防止：写真未選択/非画像/巨大ファイルは判定できません（事故防止）<br/>
+        ✅ 二重押し防止：判定中はボタンをロックします
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="small" style="margin-bottom:6px;">現場申告（任意）※ここは人が見てそう感じた申告。AIとは別に表示</div>
+      <label><input type="checkbox" id="declareHole"> 穴っぽい</label>
+      <label><input type="checkbox" id="declareSpot"> 斑点っぽい</label>
+      <label><input type="checkbox" id="declareMold"> カビっぽい</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <div class="small">プレビュー</div>
+        <img id="preview" alt="プレビュー" style="display:none;">
+        <div id="previewNote" class="small" style="margin-top:8px;">写真を選択すると表示されます</div>
+      </div>
+      <div>
+        <div class="small">結果</div>
+        <div id="result" class="result">写真を選んで「判定する」を押してや。</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ===== UI =====
+  const photo1El = document.getElementById("photo1");
+  const memoEl = document.getElementById("memo");
+
+  const declareHoleEl = document.getElementById("declareHole");
+  const declareSpotEl = document.getElementById("declareSpot");
+  const declareMoldEl = document.getElementById("declareMold");
+
+  const previewEl = document.getElementById("preview");
+  const previewNoteEl = document.getElementById("previewNote");
+  const resultEl = document.getElementById("result");
+
+  const judgeBtn = document.getElementById("judgeBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const readyPill = document.getElementById("readyPill");
+
+  let isJudging = false; // 二重押し防止
+
+  // ===== 誤入力防止：ファイルチェック =====
+  function validatePhotoFile(file) {
+    if (!file) return { ok:false, reason:"写真が未選択です" };
+    if (!file.type || !file.type.startsWith("image/")) return { ok:false, reason:"画像ファイルではありません" };
+    // 目安：8MB超は事故りやすいので止める（アキラ希望：8%やったけど、ここは8MBの意味で使う）
+    const maxBytes = 8 * 1024 * 1024;
+    if (file.size > maxBytes) return { ok:false, reason:"ファイルが大きすぎます（8MB以下推奨）" };
+    return { ok:true, reason:"OK" };
+  }
+
+  function setReadyState(ok, msg) {
+    if (ok) {
+      judgeBtn.disabled = false;
+      readyPill.textContent = "判定OK（押せます）";
+      readyPill.className = "pill ok";
+    } else {
+      judgeBtn.disabled = true;
+      readyPill.textContent = "判定NG（写真が必要）";
+      readyPill.className = "pill warn";
+      if (msg) {
+        resultEl.textContent = "【誤入力防止】" + msg + "\n\n写真を選び直してや。";
+      }
+    }
+  }
+
+  // ===== 画像読み込み（プレビュー）=====
+  async function readImageToCanvas(file, targetW=260, targetH=146) {
+    const bmp = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext("2d", { willReadFrequently:true });
+    ctx.drawImage(bmp, 0, 0, targetW, targetH);
+    const imgData = ctx.getImageData(0, 0, targetW, targetH);
+    return { canvas, imgData };
+  }
+
+  function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+  function pct(x){ return Math.round(clamp01(x) * 100); }
+
+  // ===== 軽量推定（緑領域だけ見る簡易版）=====
+  function analyzeAsparagus(imgData) {
+    const { data, width:w, height:h } = imgData;
+
+    let sum=0, sum2=0;
+    let greenCount=0;
+    let diffSum=0, diffCount=0;
+
+    for (let y=0; y<h; y++){
+      for (let x=0; x<w; x++){
+        const idx=(y*w+x)*4;
+        const r=data[idx], g=data[idx+1], b=data[idx+2];
+        const lum = (r*0.299 + g*0.587 + b*0.114);
+
+        // 緑マスク（ざっくり）
+        const isGreen = (g > r*1.08 && g > b*1.08 && g > 50);
+        if (!isGreen) continue;
+
+        greenCount++;
+        sum += lum;
+        sum2 += lum*lum;
+
+        if (x < w-1){
+          const idx2 = idx+4;
+          const r2=data[idx2], g2=data[idx2+1], b2=data[idx2+2];
+          const lum2 = (r2*0.299 + g2*0.587 + b2*0.114);
+          const isGreen2 = (g2 > r2*1.08 && g2 > b2*1.08 && g2 > 50);
+          if (isGreen2){
+            diffSum += Math.abs(lum - lum2);
+            diffCount++;
+          }
+        }
+      }
+    }
+
+    const total = w*h;
+    const greenRatio = greenCount / total;
+    if (greenRatio < 0.08) {
+      return {
+        gateOut: true,
+        greenRatio,
+        mean:0, sd:0, grain:0,
+        scores: { mold:0, hole:0, spot:0 },
+        quality: { label:"注意あり（取り直し推奨）", why:["作物領域が小さい（近づいて撮影）"] }
+      };
+    }
+
+    const mean = sum / greenCount;
+    const varr = (sum2 / greenCount) - mean*mean;
+    const sd = Math.sqrt(Math.max(0, varr));
+    const grain = diffCount ? (diffSum / diffCount) : 0;
+
+    // スコア（0〜1）※断定じゃない
+    // 暗い + 粒状 -> カビ/斑点寄り、粒状強 -> 斑点、コントラスト強 -> 穴
+    const dark = clamp01((120 - mean) / 60);        // meanが低いほど暗い
+    const noisy = clamp01((grain - 8) / 12);        // 隣接差分
+    const contrast = clamp01((sd - 35) / 35);       // ばらつき
+
+    const mold = clamp01(0.55*dark + 0.45*noisy);
+    const spot = clamp01(0.35*dark + 0.65*noisy);
+    const hole = clamp01(0.30*dark + 0.70*contrast);
+
+    // 撮影品質
+    const qualityWhy = [];
+    if (mean < 90) qualityWhy.push("暗め（明るさ優先）");
+    if (greenRatio < 0.18) qualityWhy.push("作物領域が小さい（近づいて撮影）");
+    const qualityLabel = (qualityWhy.length ? "注意あり（取り直し推奨）" : "OK");
+
+    return {
+      gateOut:false,
+      greenRatio,
+      mean, sd, grain,
+      scores: { mold, hole, spot },
+      quality: { label:qualityLabel, why:qualityWhy }
+    };
+  }
+
+  function overallFromScores(scores) {
+    const m = scores.mold, h = scores.hole, s = scores.spot;
+    const top = Math.max(m,h,s);
+
+    // 総合：正常/要注意/異常（しきい値はデモ用）
+    if (top >= 0.68) return { label:"異常", cls:"bad" };
+    if (top >= 0.45) return { label:"注意（要確認）", cls:"warn" };
+    return { label:"正常", cls:"ok" };
+  }
+
+  function buildResultText(ana) {
+    const lines = [];
+
+    const overall = ana.gateOut ? { label:"注意（要確認）", cls:"warn" } : overallFromScores(ana.scores);
+
+    lines.push(`総合判定：${overall.label}`);
+    lines.push(`（写真の兆候から推定。断定ではありません）`);
+    lines.push("");
+
+    lines.push(`撮影品質：${ana.quality.label}`);
+    if (ana.quality.why.length) {
+      lines.push("内訳（取り直しポイント）：");
+      for (const w of ana.quality.why) lines.push(`- ${w}`);
+    }
+    lines.push("");
+
+    lines.push("AI推定（可能性 0〜100）※断定ではありません");
+    lines.push(`- カビ：${pct(ana.scores.mold)}%`);
+    lines.push(`- 穴：${pct(ana.scores.hole)}%`);
+    lines.push(`- 斑点：${pct(ana.scores.spot)}%`);
+    lines.push("");
+
+    // 申告（AIに混ぜない）
+    const declares = [];
+    if (declareHoleEl.checked) declares.push("穴っぽい");
+    if (declareSpotEl.checked) declares.push("斑点っぽい");
+    if (declareMoldEl.checked) declares.push("カビっぽい");
+
+    lines.push(`申告チェック：${declares.length ? declares.join(" / ") : "なし"}`);
+    const memo = (memoEl.value || "").trim();
+    lines.push(`申告メモ：${memo ? memo : "なし"}`);
+    lines.push("");
+
+    lines.push(`debug: mean=${Math.round(ana.mean)} / sd=${Math.round(ana.sd)} / grain=${Math.round(ana.grain)} / green=${pct(ana.greenRatio)}% / ${ana.imgW || ""}${ana.imgH ? " "+ana.imgW+"x"+ana.imgH : ""}`);
+
+    return lines.join("\n");
+  }
+
+  // ===== イベント =====
+  photo1El.addEventListener("change", async () => {
+    const file = photo1El.files && photo1El.files[0];
+    const v = validatePhotoFile(file);
+
+    if (!v.ok) {
+      previewEl.style.display = "none";
+      previewNoteEl.textContent = "写真を選択すると表示されます";
+      setReadyState(false, v.reason);
+      return;
+    }
+
+    // プレビュー表示
+    const url = URL.createObjectURL(file);
+    previewEl.src = url;
+    previewEl.style.display = "block";
+    previewNoteEl.textContent = "";
+    setReadyState(true);
+  });
+
+  judgeBtn.addEventListener("click", async () => {
+    if (isJudging) return; // 二重押し防止
+    const file = photo1El.files && photo1El.files[0];
+    const v = validatePhotoFile(file);
+    if (!v.ok) { setReadyState(false, v.reason); return; }
+
+    try {
+      isJudging = true;
+      judgeBtn.disabled = true;
+      readyPill.textContent = "判定中…";
+      readyPill.className = "pill warn";
+
+      const { imgData } = await readImageToCanvas(file, 260, 146);
+      const ana = analyzeAsparagus(imgData);
+      resultEl.textContent = buildResultText(ana);
+
+      readyPill.textContent = "判定OK（押せます）";
+      readyPill.className = "pill ok";
+      judgeBtn.disabled = false;
+    } catch (e) {
+      resultEl.textContent = "エラー：判定に失敗しました。\n" + (e && e.message ? e.message : e);
+      readyPill.textContent = "判定NG（エラー）";
+      readyPill.className = "pill bad";
+      judgeBtn.disabled = false;
+    } finally {
+      isJudging = false;
+    }
+  });
+
+  resetBtn.addEventListener("click", () => {
+    photo1El.value = "";
+    memoEl.value = "";
+    declareHoleEl.checked = false;
+    declareSpotEl.checked = false;
+    declareMoldEl.checked = false;
+
+    previewEl.style.display = "none";
+    previewEl.src = "";
+    previewNoteEl.textContent = "写真を選択すると表示されます";
+
+    resultEl.textContent = "写真を選んで「判定する」を押してや。";
+    setReadyState(false);
+  });
+
+  // 初期状態
+  setReadyState(false);
+</script>
+</body>
+</html>
